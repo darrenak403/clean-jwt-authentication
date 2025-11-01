@@ -1,18 +1,24 @@
-﻿using IAM.Application.Contracts;
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using IAM.Application.Contracts;
 using IAM.Application.DTOs;
 using IAM.Domain.Entities;
 using IAM.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.IdentityModel.Tokens;
 
 namespace IAM.Infrastructure.Repositories
 {
     public class UserRepository : IUser
     {
         private readonly AuthenticationDbContext authenticationDb;
-        public UserRepository(AuthenticationDbContext authenticationDb)
+        private readonly IConfiguration configuration;
+        public UserRepository(AuthenticationDbContext authenticationDb, IConfiguration configuration)
         {
             this.authenticationDb = authenticationDb;
-
+            this.configuration = configuration;
         }
         public async Task<LoginResponse> LoginUserAsync(LoginDTO loginDTO)
         {
@@ -28,9 +34,24 @@ namespace IAM.Infrastructure.Repositories
 
         private async Task<ApplicationUser?> FindUserByEmail(string email) => await authenticationDb.Users.FirstOrDefaultAsync(u => u.Email == email);
 
-        private string GenerateJWTToken(ApplicationUser getUser)
+        private string GenerateJWTToken(ApplicationUser user)
         {
-            throw new NotImplementedException();
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["JWT:Key"]!));
+            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+            var userClaims = new[]
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Name!),
+                new Claim(ClaimTypes.Email, user.Email!)
+            };
+            var token = new JwtSecurityToken(
+                issuer: configuration["JWT:Issuer"],
+                audience: configuration["JWT:Audience"],
+                claims: userClaims,
+                expires: DateTime.Now.AddDays(5),
+                signingCredentials: credentials
+            );
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
         public async Task<RegisterResponse> RegisterUserAsync(RegisterUserDTO registerUserDTO)
